@@ -23,7 +23,7 @@ list_of_df_absence_num_raw <-
   setNames(file_name_absence)
 
 
-# rename vars -------------------------------------------------------------
+# renaming vars -------------------------------------------------------------
 
 list_of_df_absence_num_original <-
   list_of_df_absence_num_raw %>% 
@@ -46,7 +46,7 @@ df_students_num_original <-
   )
 
 
-# save rds ----------------------------------------------------------------
+# saving rds ----------------------------------------------------------------
 
 saveRDS(df_students_num_original,
         "data/original/df_students_num_original.rds")

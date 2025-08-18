@@ -1,0 +1,172 @@
+---
+title: "analyze"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+
+library(pacman)
+pacman::p_load(tidyverse, gt, gtsummary, scales)
+
+```
+
+```{r loading data, include=FALSE}
+
+df_absence_num <- readRDS("data/cleaned/df_absence_num.rds")
+
+```
+
+## 合計不登校者数の推移、表と棒グラフ（図１）
+
+```{r table_1}
+df_absence_num %>% 
+  group_by(year) %>% 
+  summarize(sum = sum(n_absence, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  rename(
+    `年度` = year,
+    `不登校者生徒数（人）`= sum
+  ) %>% 
+  gt() %>% 
+  tab_header("表１: 不登校者数の推移（全体）")
+```
+
+```{r barplot_1}
+df_absence_num %>% 
+  group_by(year) %>% 
+  summarize(sum = sum(n_absence, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(
+    year = as.factor(year),
+    sum = sum / 10000
+  ) %>% 
+  ggplot(aes(x = year, y = sum)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "不登校者数の推移",
+    caption = "図１: 不登校者数の推移（全体）",
+    x = "年度",
+    y = "不登校者生徒数（万人）"
+  ) +
+  theme(text = element_text("HiraKakuProN-W3"))
+```
+
+
+## 不登校割合の推移、折れ線グラフ、各年の上に小数第 2 位で四捨五入した数値を記入（図２）
+
+```{r lineplot_2}
+df_absence_num %>% 
+  group_by(year) %>% 
+  summarize(
+    sum_students = sum(n_student, na.rm = TRUE),
+    sum_absence = sum(n_absence, na.rm = TRUE),
+    total_absence_rate = sum_absence / sum_students
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    year = as.integer(year),
+    total_absence_rate = 100*total_absence_rate,
+    round_total_absence_rate = round(total_absence_rate, 1)
+  ) %>% 
+  ggplot(aes(x = year, y = total_absence_rate)) +
+  geom_line() +
+  geom_point() +
+  geom_text(aes(label = round_total_absence_rate), vjust = -1.5, hjust = 0.5) +
+  labs(
+    title = "不登校者生徒割合の推移",
+    caption = "図２: 不登校割合の推移",
+    x = "年度",
+    y = "不登校割合（％）"
+  ) +
+  scale_x_continuous(breaks = seq(2013, 2022, 1)) +
+  coord_cartesian(ylim = c(0, 10)) +
+  theme(text = element_text("HiraKakuProN-W3"))
+```
+
+## 合計不登校者数と不登校割合を重ねたグラフ、合計は棒グラフで左軸、推移は折れ線グラフで右軸（図３）
+
+```{r box_and_lineplot}
+scale_to_value1 <- function(values) rescale(values, to = range(x$value1))
+scale_to_value2 <- function(values) rescale(values, to = range(x$value2))
+
+df_absence_num %>% 
+  group_by(year) %>% 
+  summarize(
+    sum_students = sum(n_student, na.rm = TRUE),
+    sum_absence = sum(n_absence, na.rm = TRUE),
+    total_absence_rate = sum_absence / sum_students
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    year = as.integer(year),
+    sum_absence = sum_absence / 10000,
+    total_absence_rate = 100*2.5*total_absence_rate
+  ) %>% 
+  ggplot(aes(x = year)) +
+  geom_bar(aes(y = sum_absence), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = total_absence_rate)) +
+  geom_point(aes(y = total_absence_rate)) +
+  labs(
+    title = "不登校者生徒数/割合の推移",
+    caption = "図３: 合計不登校者数と不登校割合",
+    x = "年度",
+    y = "不登校生徒数（万人）"
+  ) +
+  scale_x_continuous(breaks = seq(2013, 2022, 1)) +
+  scale_y_continuous(
+    sec.axis = sec_axis(~./2.5, name = "不登校割合（％）")
+  ) +
+  theme(text = element_text("HiraKakuProN-W3"))
+```
+
+
+## 2022年度のデータに絞って不登校割合のヒストグラム、平均値に破線を引く（図４）
+
+```{r histogram_4}
+df_2022 <- df_absence_num %>% 
+  filter(year == 2022) %>% 
+  mutate(absence_rate = absence_rate*100)
+
+df_absence_num %>% 
+  filter(year == 2022) %>% 
+  mutate(absence_rate = absence_rate*100) %>% 
+  ggplot(aes(x = absence_rate), color = "white") +
+  geom_histogram(bins = 11) +
+  geom_vline(xintercept = mean(df_2022$absence_rate), color = "lightblue", linetype = "dashed") +
+  labs(
+    title = "不登校割合の分布",
+    caption = "図４: 不登校割合の分布",
+    x = "不登校割合（％）",
+    y = NULL
+  ) +
+  scale_y_continuous(breaks = seq(0, 10, 5)) +
+  theme(text = element_text("HiraKakuProN-W3"))
+  
+```
+
+
+## 2022 年度の不登校率が高い順に都道府県を並べて縦棒グラフ、皆さんが実際に行ったことがある都道府県から一番楽しかった場所を 1 つ選んでピンクに、それ以外をグレーで配色（図５）
+
+```{r}
+colorvec <- c("grey", "grey", "grey", "pink", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey")
+
+df_absence_num %>% 
+  filter(year == 2022) %>% 
+  mutate(absence_rate = absence_rate*100) %>% 
+  ggplot(aes(x = fct_reorder(prefecture, absence_rate), y = absence_rate)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "都道府県別不登校割合（2022年度）",
+    caption = "図５: 都道府県別不登校割合",
+    x = NULL,
+    y = "不登校割合（％）"
+  ) +
+  scale_y_continuous(breaks = seq(0, 10, 5)) +
+  scale_fill_manual(colorvec) +
+  theme(text = element_text("HiraKakuProN-W3"), aspect.ratio = 2) +
+  coord_flip()
+```
+
+
+

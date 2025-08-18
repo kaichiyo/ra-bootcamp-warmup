@@ -1,0 +1,197 @@
+---
+title: '課題3:Refactoring Assignment: Population Data with Municipaly Mergers'
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+
+library(pacman)
+pacman::p_load(tidyverse, here, estimatr)
+
+```
+
+```{r}
+# Read Data
+df_pop_raw <- read_csv("data/assignment23_data/raw/population_raw.csv") %>% 
+  
+  # municipality_name列の値をprefecture_name_copyとmunicipality_nameに分けている
+  separate(
+    municipality_name,
+    into = c("prefecture_name_copy", "municipality_name"),
+    sep = "-"
+  ) %>% 
+  
+  # prefecture_name列は不要なので削除
+  select(-prefecture_name_copy) %>%
+  
+  # year列のyear_という部分が不要なので削除
+  mutate(year = str_remove(year, "year_")) %>% 
+  
+  # year列を数値型に直す
+  mutate(year = as.numeric(year)) %>% 
+  
+  # municiparity_id列の右から5桁が必要なので抽出する
+  mutate(municipality_id = stringr::str_sub(municipality_id, start = -5, end = -1)) %>% 
+  
+  # municipality_nameが-であればNAにする
+  mutate(across(c(municipality_name), ~na_if(., "-"))) %>%
+  
+  # municipality_nameが\u001fであればNAにする
+  mutate(across(c(municipality_name), ~na_if(., "\u001f"))) %>% 
+  
+  # municipality_nameが文字列のNAであればNAにする（元のコードだとなかったが、NAが残ってしまっていたため追加）
+  mutate(across(c(municipality_name), ~na_if(., "NA"))) %>% 
+  
+  # municipality_nameがNAである行を削除する
+  tidyr::drop_na(municipality_name) %>% 
+  
+  # prefecture_name列とmunicipality_name列以外の列を数値型にする
+  mutate(across(-any_of(c("prefecture_name", "municipality_name")), as.numeric))
+
+
+
+# Merge Data
+adjust_df <- readxl::read_xlsx("data/assignment23_data/raw/municipality_converter_jp.xlsx")
+
+df_municipality_id_2020 <- adjust_df %>% 
+  
+  # id_muni2020の特異な値を抽出する
+  distinct(id_muni2020) %>% 
+  
+  # id_muni2020をmunicipality_idにrenameする
+  rename(
+    municipality_id = id_muni2020
+  )
+
+
+# municipality_idをベクトルにする
+list_2020_id <- df_municipality_id_2020 %>% 
+  pull(municipality_id)
+
+
+df_name_id <- df_pop_raw %>% 
+  
+  # 必要な列を選択する
+  select(
+    municipality_id,
+    municipality_name,
+    prefecture_name,
+    year
+  ) %>% 
+  
+  # yearが2020のものを抽出する
+  dplyr::filter(year == 2020) %>% 
+  
+  # municipality_idがベクトルlist_2020_idと合致するものを抽出する
+  dplyr::filter(municipality_id %in% list_2020_id) %>%
+  
+  # 特異な列のみにする
+  distinct() %>% 
+  
+  # year列は不要なので削除
+  select(-year)
+
+
+# かなり長めの関数adjust_municipality_idを定義する
+adjust_municipality_id <- function(id_n, df_pop_raw, adjust_df) {
+  
+  # id_nを表示する
+  print(id_n)
+  
+  list_id <- adjust_df %>% 
+    
+    # id_muni2020がid_nと等しい行を抽出する
+    dplyr::filter(id_muni2020 == id_n) %>% 
+    
+    # 2列目から10列目を選択する
+    select(seq(2,10)) %>% 
+    
+    # long型に変形する
+    tidyr::pivot_longer(
+      cols = everything(),
+      names_to = "year",
+      values_to = "id"
+    ) %>% 
+    
+    # idが特異な列を抽出する
+    distinct(id) %>% 
+    
+    # NAが存在する行を削除する
+    drop_na() %>% 
+    
+    # id列をベクトルとして抽出する
+    pull()
+  
+  df_id_n <- df_pop_raw %>% 
+    
+    # miniciparity_idがlist_idベクトルと合致する行を抽出する
+    dplyr::filter(municipality_id %in% list_id) %>% 
+    
+    # municipality_idを文字列にする
+    mutate(
+      municipality_id = as.character(municipality_id)
+    )
+  
+  city_data <- df_pop_raw %>% 
+    
+    # yearが2020で、municipality_idがid_nと等しい行を抽出する
+    dplyr::filter(year == 2020,
+                  municipality_id == id_n) %>% 
+    
+    # 必要な列を選択する
+    select(municipality_id, municipality_name, prefecture_name)
+  
+  # municipality_idをベクトルに格納する
+  municipality_id_n <- city_data %>% 
+    pull(municipality_id)
+  
+  # municipality_name_nをベクトルに格納する
+  municipality_name_n <- city_data %>% 
+    pull(municipality_name)
+  
+  # prefecture_nameをベクトルに格納する
+  prefecture_name_n <- city_data %>% 
+    pull(prefecture_name)
+  
+  list_vars <- c(
+    "male",
+    "female",
+    "total",
+    "household",
+    "moving_in",
+    "birth",
+    "increase_total",
+    "moving_out",
+    "mortality",
+    "decrease_total",
+    "change",
+    "natural",
+    "social"
+  )
+  
+  output_data <- df_id_n %>% 
+    reframe(
+      across(any_of(list_vars), sum, na.rm = TRUE),
+      .by = year
+    ) %>% 
+    mutate(
+      municipality_id = municipality_id_n
+    )
+  
+  return(output_data)
+}
+
+df_pop <- purrr::map(list_2020_id, adjust_municipality_id, df_pop_raw, adjust_df) %>% 
+  bind_rows()
+
+df_population_adjusted <- df_pop %>% 
+  left_join(df_name_id, by = "municipality_id") %>% 
+  select(
+    municipality_id, municipality_name, prefecture_name, year, everything()
+  )
+
+# write_csv(df_population_adjusted, "data/assignment23_data/output/population_adjusted.csv"))
+```
+
+
